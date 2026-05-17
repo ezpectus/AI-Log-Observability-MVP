@@ -1,0 +1,56 @@
+# .NET build outputs
+bin/
+obj/
+out/
+
+# .NET user-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# .NET IDE
+.vs/
+.idea/
+*.userprefs
+
+# Frontend dependencies
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.turbo/
+
+# Environment and secrets
+.env
+.env.local
+.env.development
+.env.production
+*.env
+src/Api/appsettings.Development.json
+src/Api/appsettings.Production.json
+src/Api/appsettings.Staging.json
+
+# Секреты локальной разработки
+src/Api/appsettings.Development.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.mdf
+*.ldf
+
+# Redis dump
+dump.rdb
+
+# Temporary files
+*.tmp
+*.temp
