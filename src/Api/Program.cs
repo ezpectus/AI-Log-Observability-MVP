@@ -20,9 +20,9 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Configure Redis
-var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-    ConnectionMultiplexer.Connect(redisConnectionString!));
+    ConnectionMultiplexer.Connect(redisConnectionString));
 
 // Configure HttpClient for HuggingFace
 builder.Services.AddHttpClient<HuggingFaceClient>(client =>
