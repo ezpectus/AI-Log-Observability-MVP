@@ -1,5 +1,5 @@
 using Application.Interfaces;
-using Domain.Enums;
+using DomainLogLevel = Domain.Enums.LogLevel;
 using Domain.Models;
 using Infrastructure.PostgreSql;
 using Microsoft.AspNetCore.Mvc;
@@ -70,7 +70,7 @@ public class LogsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetLogs(
         [FromQuery] string? service,
-        [FromQuery] LogLevel? level,
+        [FromQuery] DomainLogLevel? level,
         [FromQuery] int limit = 100,
         [FromQuery] int offset = 0)
     {

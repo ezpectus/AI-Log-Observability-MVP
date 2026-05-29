@@ -1,4 +1,4 @@
-using Domain.Enums;
+using DomainLogLevel = Domain.Enums.LogLevel;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,7 +19,7 @@ public class LogRepository
         await _context.SaveChangesAsync();
     }
 
-    public async Task<IEnumerable<LogEntry>> GetLogsAsync(string? service, LogLevel? level, int limit, int offset)
+    public async Task<IEnumerable<LogEntry>> GetLogsAsync(string? service, DomainLogLevel? level, int limit, int offset)
     {
         var query = _context.LogEntries.AsQueryable();
 

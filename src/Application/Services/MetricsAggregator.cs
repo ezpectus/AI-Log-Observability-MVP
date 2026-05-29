@@ -94,9 +94,10 @@ public class MetricsAggregator
     {
         lock (_cleanupLock)
         {
-            while (data.Logs.TryPeek(out var oldestLog) && (timestamp - oldestLog.Timestamp).TotalSeconds > 60)
+            var queue = data.Logs;
+            while (queue.TryPeek(out var oldestLog) && (timestamp - oldestLog.Timestamp).TotalSeconds > 60)
             {
-                data.Logs.TryDequeue(out _);
+                queue.TryDequeue(out _);
                 // Atomic decrement for log count
                 Interlocked.Decrement(ref data.TotalLogs);
             }
@@ -106,7 +107,7 @@ public class MetricsAggregator
     private class ServiceMetricsData
     {
         public ConcurrentQueue<LogEntryData> Logs { get; } = new();
-        public long TotalLogs { get; set; } = 0;
+        public long TotalLogs;
     }
 
     private class LogEntryData

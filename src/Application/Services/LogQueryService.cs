@@ -1,5 +1,5 @@
 using Application.Interfaces;
-using Domain.Enums;
+using DomainLogLevel = Domain.Enums.LogLevel;
 using Domain.Models;
 using Infrastructure.PostgreSql;
 
@@ -14,7 +14,7 @@ public class LogQueryService : ILogQueryService
         _logRepository = logRepository;
     }
 
-    public async Task<IEnumerable<LogEntry>> GetLogsAsync(string? service, LogLevel? level, int limit, int offset)
+    public async Task<IEnumerable<LogEntry>> GetLogsAsync(string? service, DomainLogLevel? level, int limit, int offset)
     {
         return await _logRepository.GetLogsAsync(service, level, limit, offset);
     }

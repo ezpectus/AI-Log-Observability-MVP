@@ -5,7 +5,7 @@ using Infrastructure.AI;
 using Infrastructure.Background;
 using Infrastructure.PostgreSql;
 using Infrastructure.Realtime;
-using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 
@@ -59,7 +59,6 @@ builder.Services.AddRateLimiter(options =>
                 SegmentsPerWindow = 2,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 10,
-                QueueFullRejected = true
             })
     );
 });

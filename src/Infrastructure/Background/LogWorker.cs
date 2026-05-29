@@ -1,6 +1,6 @@
 using Application.Interfaces;
 using Application.Services;
-using Domain.Enums;
+using DomainLogLevel = Domain.Enums.LogLevel;
 using Domain.Models;
 using Infrastructure.PostgreSql;
 using Infrastructure.Realtime;
@@ -55,7 +55,7 @@ public class LogWorker : BackgroundService
                             var repository = scope.ServiceProvider.GetRequiredService<LogRepository>();
                             var errorGroupingService = scope.ServiceProvider.GetRequiredService<IErrorGroupingService>();
 
-                            if (log.Level == LogLevel.Error || log.Level == LogLevel.Critical)
+                            if (log.Level == DomainLogLevel.Error || log.Level == DomainLogLevel.Critical)
                             {
                                 var errorGroupId = await errorGroupingService.HandleErrorGroupAsync(log);
                                 log = log with { ErrorGroupId = errorGroupId };
