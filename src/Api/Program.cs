@@ -45,6 +45,7 @@ builder.Services.AddScoped<IAiAnalysisService, HuggingFaceClient>(sp =>
     return new HuggingFaceClient(apiKey, modelUrl, httpClient);
 });
 builder.Services.AddHostedService<LogWorker>();
+builder.Services.AddHostedService<MockDataSeederHostedService>();
 
 // Configure Rate Limiting
 builder.Services.AddRateLimiter(options =>
