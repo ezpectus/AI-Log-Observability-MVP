@@ -81,7 +81,6 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 internal class StubConnectionMultiplexer : IConnectionMultiplexer
 {
     public bool IsConnected => false;
-    public int GetHashCode() => base.GetHashCode();
     
     public string ClientName { get; set; } = "stub";
     public int GetSentinelConnectionCount() => 0;
@@ -177,8 +176,7 @@ internal class StubConnectionMultiplexer : IConnectionMultiplexer
         public object ExecuteAsync(string command, params object[] args) => null;
         public TimeSpan? KeyTimeToLive(RedisKey key, CommandFlags flags = CommandFlags.None) => null;
         public ValueTask<TimeSpan?> KeyTimeToLiveAsync(RedisKey key, CommandFlags flags = CommandFlags.None) => ValueTask.FromResult<TimeSpan?>(null);
-        public long PublishAsync(RedisChannel channel, RedisValue message, CommandFlags flags = CommandFlags.None) => 0;
-        public ValueTask<long> PublishAsyncAsync(RedisChannel channel, RedisValue message, CommandFlags flags = CommandFlags.None) => ValueTask.FromResult(0L);
+        public ValueTask<long> PublishAsync(RedisChannel channel, RedisValue message, CommandFlags flags = CommandFlags.None) => ValueTask.FromResult(0L);
         public ITransaction CreateTransaction(object asyncState = null) => new StubTransaction();
         public void Watch(RedisKey[] keys, CommandFlags flags = CommandFlags.None) { }
         public ValueTask WatchAsync(RedisKey[] keys, CommandFlags flags = CommandFlags.None) => ValueTask.CompletedTask;
