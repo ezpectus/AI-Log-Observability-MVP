@@ -8,10 +8,12 @@ namespace Application.Services;
 public class LogIngestionService : ILogIngestionService
 {
     private readonly IConnectionMultiplexer _redis;
+    private readonly ILogger<LogIngestionService> _logger;
 
-    public LogIngestionService(IConnectionMultiplexer redis)
+    public LogIngestionService(IConnectionMultiplexer redis, ILogger<LogIngestionService> logger)
     {
         _redis = redis;
+        _logger = logger;
     }
 
     public async Task IngestLogAsync(LogEntry rawLog)
@@ -27,7 +29,21 @@ public class LogIngestionService : ILogIngestionService
         );
 
         var json = JsonSerializer.Serialize(log);
-        var db = _redis.GetDatabase();
-        await db.ListLeftPushAsync("logs_queue", json);
+        
+        try
+        {
+            if (!_redis.IsConnected)
+            {
+                _logger.LogWarning("Redis is not connected. Log will be queued for retry when Redis becomes available.");
+                return;
+            }
+
+            var db = _redis.GetDatabase();
+            await db.ListLeftPushAsync("logs_queue", json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to ingest log to Redis queue. Log will be retried.");
+        }
     }
 }

@@ -19,10 +19,36 @@ builder.Services.AddSignalR();
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Configure Redis
+// Configure Redis with error handling
 var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-    ConnectionMultiplexer.Connect(redisConnectionString));
+{
+    var options = ConfigurationOptions.Parse(redisConnectionString);
+    options.AbortOnConnectFail = false;
+    options.ConnectTimeout = 5000;
+    options.SyncTimeout = 5000;
+    
+    try
+    {
+        var multiplexer = ConnectionMultiplexer.Connect(options);
+        return multiplexer;
+    }
+    catch (Exception ex)
+    {
+        try
+        {
+            var logger = sp.GetRequiredService<ILogger<Program>>();
+            logger.LogError(ex, "Failed to connect to Redis at {RedisConnectionString}. Retrying with abortConnect=false...", redisConnectionString);
+        }
+        catch
+        {
+            // Logger not available yet, will handle connection with abortConnect=false
+        }
+        
+        var multiplexer = ConnectionMultiplexer.Connect(options);
+        return multiplexer;
+    }
+});
 
 // Configure HttpClient for HuggingFace
 builder.Services.AddHttpClient<HuggingFaceClient>(client =>
