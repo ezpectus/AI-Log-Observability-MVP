@@ -16,65 +16,94 @@ public class LogWorker : BackgroundService
     private readonly IHubContext<LogHub> _hubContext;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly MetricsAggregator _metricsAggregator;
+    private readonly ILogger<LogWorker> _logger;
 
     public LogWorker(
         IConnectionMultiplexer redis,
         IHubContext<LogHub> hubContext,
         IServiceScopeFactory scopeFactory,
-        MetricsAggregator metricsAggregator)
+        MetricsAggregator metricsAggregator,
+        ILogger<LogWorker> logger)
     {
         _redis = redis;
         _hubContext = hubContext;
         _scopeFactory = scopeFactory;
         _metricsAggregator = metricsAggregator;
+        _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var db = _redis.GetDatabase();
-        
+        _logger.LogInformation("LogWorker starting");
+
         // Start metrics broadcasting task
         var metricsTask = BroadcastMetricsAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            string? json = await db.ListRightPopAsync("logs_queue");
-
-            if (json != null)
+            try
             {
-                try
+                if (!_redis.IsConnected)
                 {
-                    var log = JsonSerializer.Deserialize<LogEntry>(json);
-                    if (log != null)
+                    _logger.LogWarning("Redis is not connected. Waiting for connection...");
+                    await Task.Delay(5000, stoppingToken);
+                    continue;
+                }
+
+                var db = _redis.GetDatabase();
+                string? json = await db.ListRightPopAsync("logs_queue");
+
+                if (json != null)
+                {
+                    try
                     {
-                        // Track metrics
-                        _metricsAggregator.TrackLog(log.ServiceName, log.Level.ToString());
-
-                        using (var scope = _scopeFactory.CreateScope())
+                        var log = JsonSerializer.Deserialize<LogEntry>(json);
+                        if (log != null)
                         {
-                            var repository = scope.ServiceProvider.GetRequiredService<LogRepository>();
-                            var errorGroupingService = scope.ServiceProvider.GetRequiredService<IErrorGroupingService>();
+                            // Track metrics
+                            _metricsAggregator.TrackLog(log.ServiceName, log.Level.ToString());
 
-                            if (log.Level == DomainLogLevel.Error || log.Level == DomainLogLevel.Critical)
+                            using (var scope = _scopeFactory.CreateScope())
                             {
-                                var errorGroupId = await errorGroupingService.HandleErrorGroupAsync(log);
-                                log = log with { ErrorGroupId = errorGroupId };
+                                var repository = scope.ServiceProvider.GetRequiredService<LogRepository>();
+                                var errorGroupingService = scope.ServiceProvider.GetRequiredService<IErrorGroupingService>();
+
+                                if (log.Level == DomainLogLevel.Error || log.Level == DomainLogLevel.Critical)
+                                {
+                                    var errorGroupId = await errorGroupingService.HandleErrorGroupAsync(log);
+                                    log = log with { ErrorGroupId = errorGroupId };
+                                }
+
+                                await repository.SaveLogAsync(log);
                             }
 
-                            await repository.SaveLogAsync(log);
+                            await _hubContext.Clients.All.SendAsync("ReceiveLog", log, stoppingToken);
                         }
-
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", log, stoppingToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error processing log: {Message}", ex.Message);
                     }
                 }
-                catch (Exception ex)
+                else
                 {
-                    Console.WriteLine($"Error processing log: {ex.Message}");
+                    await Task.Delay(100, stoppingToken);
                 }
             }
-            else
+            catch (RedisConnectionException ex)
             {
-                await Task.Delay(100, stoppingToken);
+                _logger.LogError(ex, "Redis connection lost while processing logs");
+                await Task.Delay(5000, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("LogWorker cancellation requested");
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in LogWorker");
+                await Task.Delay(1000, stoppingToken);
             }
         }
 
@@ -105,9 +134,14 @@ public class LogWorker : BackgroundService
                     }
                 }
             }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Metrics broadcasting cancellation requested");
+                break;
+            }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error broadcasting metrics: {ex.Message}");
+                _logger.LogError(ex, "Error broadcasting metrics: {Message}", ex.Message);
             }
         }
     }
