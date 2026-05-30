@@ -15,9 +15,31 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 
-// Configure PostgreSQL
+// Configure PostgreSQL with fallback to In-Memory database
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+{
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    var isDevelopment = builder.Environment.IsDevelopment();
+    
+    // Try to use PostgreSQL if connection string is configured
+    if (!string.IsNullOrEmpty(connectionString) && !isDevelopment)
+    {
+        try
+        {
+            options.UseNpgsql(connectionString);
+        }
+        catch
+        {
+            // Fallback to In-Memory if connection fails
+            options.UseInMemoryDatabase("LogDb");
+        }
+    }
+    else
+    {
+        // Default to In-Memory for development or when no connection string is provided
+        options.UseInMemoryDatabase("LogDb");
+    }
+});
 
 // Configure Redis with error handling
 var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";

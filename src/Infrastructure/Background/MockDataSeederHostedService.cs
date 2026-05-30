@@ -26,27 +26,34 @@ public class MockDataSeederHostedService : BackgroundService
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-                // Check if database has any logs already
-                var existingLogsCount = await dbContext.LogEntries.CountAsync(cancellationToken: stoppingToken);
-
-                if (existingLogsCount == 0)
+                try
                 {
-                    _logger.LogInformation("Database is empty. Seeding mock data...");
+                    // Check if database has any logs already
+                    var existingLogsCount = await dbContext.LogEntries.CountAsync(cancellationToken: stoppingToken);
 
-                    var mockLogs = MockDataSeeder.GenerateMockLogs(18).ToList();
-
-                    foreach (var log in mockLogs)
+                    if (existingLogsCount == 0)
                     {
-                        await dbContext.LogEntries.AddAsync(log, cancellationToken: stoppingToken);
+                        _logger.LogInformation("Database is empty. Seeding mock data...");
+
+                        var mockLogs = MockDataSeeder.GenerateMockLogs(18).ToList();
+
+                        foreach (var log in mockLogs)
+                        {
+                            await dbContext.LogEntries.AddAsync(log, cancellationToken: stoppingToken);
+                        }
+
+                        await dbContext.SaveChangesAsync(stoppingToken);
+
+                        _logger.LogInformation($"Successfully seeded {mockLogs.Count} mock log entries");
                     }
-
-                    await dbContext.SaveChangesAsync(stoppingToken);
-
-                    _logger.LogInformation($"Successfully seeded {mockLogs.Count} mock log entries");
+                    else
+                    {
+                        _logger.LogInformation($"Database already contains {existingLogsCount} log entries. Skipping seed.");
+                    }
                 }
-                else
+                catch (Exception dbEx) when (dbEx is not OperationCanceledException)
                 {
-                    _logger.LogInformation($"Database already contains {existingLogsCount} log entries. Skipping seed.");
+                    _logger.LogWarning(dbEx, "Failed to seed database. Using in-memory database fallback. Mock data seeding skipped.");
                 }
             }
         }
