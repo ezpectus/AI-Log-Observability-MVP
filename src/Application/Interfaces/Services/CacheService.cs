@@ -1,12 +1,12 @@
 using StackExchange.Redis;
 using System.Text.Json;
 
-namespace Application.Services;
+namespace Application.Interfaces.Services;
 
 /// <summary>
 /// A resilient caching service that gracefully degrades when Redis is unavailable.
 /// All Redis operations are wrapped in try-catch blocks to prevent cache failures
-/// from blocking application flow.
+/// from blocking application flow. Designed for No-Docker mode reliability.
 /// </summary>
 public class CacheService : ICacheService
 {

@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Moq; 
 using StackExchange.Redis;
+using Application.Interfaces.Services;
 using Application.Interfaces;
 using Application.Services;
 using Infrastructure.AI;
@@ -60,7 +61,7 @@ var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?
 
 try
 {
-    // AbortOnConnectFail = true заставит его сразу выкинуть Exception, если Докер выключен
+    // AbortOnConnectFail ensures that if Redis is unavailable at startup, it won't keep retrying and blocking the app from starting.
     var opts = ConfigurationOptions.Parse(redisConnectionString);
     opts.AbortOnConnectFail = true; 
     opts.ConnectTimeout = 2000;
@@ -74,10 +75,7 @@ catch
 {
     Console.WriteLine("[WARN] Redis is offline. Running in Bypassed/In-Memory Mode (powered by Moq).");
 
-    // Создаем реальную очередь в оперативке для наших логов
     var inMemoryQueue = new ConcurrentQueue<RedisValue>();
-
-    // Генерируем 100% рабочую заглушку для IDatabase
     var mockDb = new Mock<IDatabase>();
 
     mockDb.Setup(db => db.ListLeftPushAsync(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<When>(), It.IsAny<CommandFlags>()))
@@ -93,14 +91,16 @@ catch
               return inMemoryQueue.TryDequeue(out var val) ? val : RedisValue.Null;
           });
 
-    // Генерируем заглушку для IConnectionMultiplexer
     var mockMux = new Mock<IConnectionMultiplexer>();
     mockMux.Setup(m => m.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(mockDb.Object);
+    
+  
+    mockMux.Setup(m => m.IsConnected).Returns(true); 
 
-    // Регистрируем наши идеальные фейки
     builder.Services.AddSingleton<IConnectionMultiplexer>(mockMux.Object);
     builder.Services.AddSingleton<IDatabase>(mockDb.Object);
 }
+
 
 // Application services
 builder.Services.AddScoped<LogRepository>();

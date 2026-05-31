@@ -19,57 +19,78 @@ public class ErrorGroupingService : IErrorGroupingService
         _logRepository = logRepository;
     }
 
-    public async Task<Guid?> HandleErrorGroupAsync(LogEntry log)
+  public async Task<Guid?> HandleErrorGroupAsync(LogEntry log)
+{
+    var errorClass = ExtractErrorClass(log.Message);
+    var errorHash = ComputeErrorHash(log.Message, log.StackTrace);
+
+    // 1. Проверяем оперативную память (кэш)
+    if (_errorCache.TryGetValue(errorHash, out var cachedGroupId))
     {
-        var errorClass = ExtractErrorClass(log.Message);
-        var errorHash = ComputeErrorHash(log.Message, log.StackTrace);
-
-        // Check cache first for instant lookup
-        if (_errorCache.TryGetValue(errorHash, out var cachedGroupId))
+        var cachedGroup = await _logRepository.GetErrorGroupByIdAsync(cachedGroupId);
+        if (cachedGroup != null)
         {
-            var cachedGroup = await _logRepository.GetErrorGroupByIdAsync(cachedGroupId);
-            if (cachedGroup != null)
+            cachedGroup.Count++;
+            cachedGroup.LastSeenUtc = DateTime.UtcNow;
+
+            // ЕСЛИ АНАЛИЗА НЕТ — ДОГЕНЕРИРУЕМ ЕГО
+            if (string.IsNullOrWhiteSpace(cachedGroup.Summary))
             {
-                cachedGroup.Count++;
-                cachedGroup.LastSeenUtc = DateTime.UtcNow;
-                await _logRepository.UpdateErrorGroupAsync(cachedGroup);
-                return cachedGroup.Id;
+                var (analysis, patchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
+                cachedGroup.Summary = analysis;
+                cachedGroup.SuggestedPatch = patchCode;
             }
-            else
-            {
-                // Cache miss - remove stale entry
-                _errorCache.TryRemove(errorHash, out _);
-            }
+
+            await _logRepository.UpdateErrorGroupAsync(cachedGroup);
+            return cachedGroup.Id;
         }
-
-        var existingGroup = await _logRepository.GetErrorGroupByErrorClassAsync(errorClass);
-
-        if (existingGroup != null)
+        else
         {
-            existingGroup.Count++;
-            existingGroup.LastSeenUtc = DateTime.UtcNow;
-            await _logRepository.UpdateErrorGroupAsync(existingGroup);
-            _errorCache.TryAdd(errorHash, existingGroup.Id);
-            return existingGroup.Id;
+            _errorCache.TryRemove(errorHash, out _);
         }
-
-        var (analysis, patchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
-
-        var newGroup = new ErrorGroup
-        {
-            Id = Guid.NewGuid(),
-            ErrorClass = errorClass,
-            Summary = analysis,
-            SuggestedPatch = patchCode,
-            FirstSeenUtc = DateTime.UtcNow,
-            LastSeenUtc = DateTime.UtcNow,
-            Count = 1
-        };
-
-        await _logRepository.AddErrorGroupAsync(newGroup);
-        _errorCache.TryAdd(errorHash, newGroup.Id);
-        return newGroup.Id;
     }
+
+    // 2. Проверяем базу данных
+    var existingGroup = await _logRepository.GetErrorGroupByErrorClassAsync(errorClass);
+
+    if (existingGroup != null)
+    {
+        existingGroup.Count++;
+        existingGroup.LastSeenUtc = DateTime.UtcNow;
+
+        // ЕСЛИ В БАЗЕ НАШЛАСЬ ГРУППА БЕЗ ИИ-АНАЛИЗА — ПИНАЕМ МИСТРАЛЬ
+        if (string.IsNullOrWhiteSpace(existingGroup.Summary))
+        {
+            Console.WriteLine($"[AI] Generating missing analysis for existing group: {errorClass}");
+            var (analysis, patchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
+            existingGroup.Summary = analysis;
+            existingGroup.SuggestedPatch = patchCode;
+        }
+
+        await _logRepository.UpdateErrorGroupAsync(existingGroup);
+        _errorCache.TryAdd(errorHash, existingGroup.Id);
+        return existingGroup.Id;
+    }
+
+    // 3. Создаем абсолютно новую группу, если такой ошибки еще не было
+    Console.WriteLine($"[AI] Requesting HuggingFace for new error type: {errorClass}");
+    var (newAnalysis, newPatchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
+
+    var newGroup = new ErrorGroup
+    {
+        Id = Guid.NewGuid(),
+        ErrorClass = errorClass,
+        Summary = newAnalysis,
+        SuggestedPatch = newPatchCode,
+        FirstSeenUtc = DateTime.UtcNow,
+        LastSeenUtc = DateTime.UtcNow,
+        Count = 1
+    };
+
+    await _logRepository.AddErrorGroupAsync(newGroup);
+    _errorCache.TryAdd(errorHash, newGroup.Id);
+    return newGroup.Id;
+}
 
     private string ComputeErrorHash(string message, string? stackTrace)
     {
