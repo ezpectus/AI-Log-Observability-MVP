@@ -131,7 +131,7 @@ const App: React.FC = () => {
           />
         </div>
         <div className="w-96 min-w-96">
-          <ErrorGroups />
+          <ErrorGroups connection={connection} />
         </div>
       </div>
       <footer className="bg-slate-800 border-t border-slate-700 px-6 py-2">

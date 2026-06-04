@@ -36,7 +36,6 @@ public class LogWorker : BackgroundService
     {
         _logger.LogInformation("LogWorker starting");
 
-        // Start metrics broadcasting task
         var metricsTask = BroadcastMetricsAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -60,7 +59,6 @@ public class LogWorker : BackgroundService
                         var log = JsonSerializer.Deserialize<LogEntry>(json);
                         if (log != null)
                         {
-                            // Track metrics
                             _metricsAggregator.TrackLog(log.ServiceName, log.Level.ToString());
 
                             using (var scope = _scopeFactory.CreateScope())
@@ -72,6 +70,15 @@ public class LogWorker : BackgroundService
                                 {
                                     var errorGroupId = await errorGroupingService.HandleErrorGroupAsync(log);
                                     log = log with { ErrorGroupId = errorGroupId };
+
+                                    if (errorGroupId.HasValue)
+                                    {
+                                        var updatedGroup = await repository.GetErrorGroupByIdAsync(errorGroupId.Value);
+                                        if (updatedGroup != null)
+                                        {
+                                            await _hubContext.Clients.All.SendAsync("ReceiveErrorGroup", updatedGroup, stoppingToken);
+                                        }
+                                    }
                                 }
 
                                 await repository.SaveLogAsync(log);
@@ -121,7 +128,6 @@ public class LogWorker : BackgroundService
                 var metrics = _metricsAggregator.GetMetrics();
                 await _hubContext.Clients.All.SendAsync("ReceiveMetrics", metrics, stoppingToken);
 
-                // Check for anomalies
                 foreach (var metric in metrics)
                 {
                     if (_metricsAggregator.CheckAnomalies(metric.ServiceName))

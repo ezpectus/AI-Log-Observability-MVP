@@ -19,78 +19,119 @@ public class ErrorGroupingService : IErrorGroupingService
         _logRepository = logRepository;
     }
 
-  public async Task<Guid?> HandleErrorGroupAsync(LogEntry log)
-{
-    var errorClass = ExtractErrorClass(log.Message);
-    var errorHash = ComputeErrorHash(log.Message, log.StackTrace);
-
-    // 1. Проверяем оперативную память (кэш)
-    if (_errorCache.TryGetValue(errorHash, out var cachedGroupId))
+    public async Task<Guid?> HandleErrorGroupAsync(LogEntry log)
     {
-        var cachedGroup = await _logRepository.GetErrorGroupByIdAsync(cachedGroupId);
-        if (cachedGroup != null)
-        {
-            cachedGroup.Count++;
-            cachedGroup.LastSeenUtc = DateTime.UtcNow;
+        var errorClass = ExtractErrorClass(log.Message);
+        var errorHash = ComputeErrorHash(log.Message, log.StackTrace);
 
-            // ЕСЛИ АНАЛИЗА НЕТ — ДОГЕНЕРИРУЕМ ЕГО
-            if (string.IsNullOrWhiteSpace(cachedGroup.Summary))
+        // 1. Check in-memory cache first
+        if (_errorCache.TryGetValue(errorHash, out var cachedGroupId))
+        {
+            var cachedGroup = await _logRepository.GetErrorGroupByIdAsync(cachedGroupId);
+            if (cachedGroup != null)
             {
-                var (analysis, patchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
-                cachedGroup.Summary = analysis;
-                cachedGroup.SuggestedPatch = patchCode;
+                cachedGroup.Count++;
+                cachedGroup.LastSeenUtc = DateTime.UtcNow;
+
+                // If analysis is missing, generate it on-demand
+                if (string.IsNullOrWhiteSpace(cachedGroup.Summary) || string.IsNullOrWhiteSpace(cachedGroup.SuggestedPatch))
+                {
+                    Console.WriteLine($"[AI] Generating missing analysis for cached group: {errorClass}");
+                    try
+                    {
+                        var (analysis, patchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
+                        cachedGroup.Summary = analysis;
+                        cachedGroup.SuggestedPatch = patchCode;
+                        Console.WriteLine($"[AI] Successfully generated analysis for cached group: {errorClass}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[AI] Failed to generate analysis for cached group {errorClass}: {ex.Message}");
+                    }
+                }
+
+                await _logRepository.UpdateErrorGroupAsync(cachedGroup);
+                return cachedGroup.Id;
+            }
+            else
+            {
+                _errorCache.TryRemove(errorHash, out _);
+            }
+        }
+
+        // 2. Check database
+        var existingGroup = await _logRepository.GetErrorGroupByErrorClassAsync(errorClass);
+
+        if (existingGroup != null)
+        {
+            existingGroup.Count++;
+            existingGroup.LastSeenUtc = DateTime.UtcNow;
+
+            // If analysis is missing in database, generate it on-demand
+            if (string.IsNullOrWhiteSpace(existingGroup.Summary) || string.IsNullOrWhiteSpace(existingGroup.SuggestedPatch))
+            {
+                Console.WriteLine($"[AI] Generating missing analysis for existing database group: {errorClass}");
+                try
+                {
+                    var (analysis, patchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
+                    existingGroup.Summary = analysis;
+                    existingGroup.SuggestedPatch = patchCode;
+                    Console.WriteLine($"[AI] Successfully generated analysis for database group: {errorClass}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[AI] Failed to generate analysis for database group {errorClass}: {ex.Message}");
+                }
             }
 
-            await _logRepository.UpdateErrorGroupAsync(cachedGroup);
-            return cachedGroup.Id;
+            await _logRepository.UpdateErrorGroupAsync(existingGroup);
+            _errorCache.TryAdd(errorHash, existingGroup.Id);
+            return existingGroup.Id;
         }
-        else
+
+        // 3. Create new group if this error type hasn't been seen before
+        Console.WriteLine($"[AI] Requesting HuggingFace for new error type: {errorClass}");
+        try
         {
-            _errorCache.TryRemove(errorHash, out _);
+            var (newAnalysis, newPatchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
+            Console.WriteLine($"[AI] Successfully generated analysis for new error type: {errorClass}");
+
+            var newGroup = new ErrorGroup
+            {
+                Id = Guid.NewGuid(),
+                ErrorClass = errorClass,
+                Summary = newAnalysis,
+                SuggestedPatch = newPatchCode,
+                FirstSeenUtc = DateTime.UtcNow,
+                LastSeenUtc = DateTime.UtcNow,
+                Count = 1
+            };
+
+            await _logRepository.AddErrorGroupAsync(newGroup);
+            _errorCache.TryAdd(errorHash, newGroup.Id);
+            return newGroup.Id;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AI] Failed to generate analysis for new error type {errorClass}: {ex.Message}");
+            
+            // Create group without AI analysis if service fails
+            var fallbackGroup = new ErrorGroup
+            {
+                Id = Guid.NewGuid(),
+                ErrorClass = errorClass,
+                Summary = "AI analysis unavailable - service error",
+                SuggestedPatch = string.Empty,
+                FirstSeenUtc = DateTime.UtcNow,
+                LastSeenUtc = DateTime.UtcNow,
+                Count = 1
+            };
+
+            await _logRepository.AddErrorGroupAsync(fallbackGroup);
+            _errorCache.TryAdd(errorHash, fallbackGroup.Id);
+            return fallbackGroup.Id;
         }
     }
-
-    // 2. Проверяем базу данных
-    var existingGroup = await _logRepository.GetErrorGroupByErrorClassAsync(errorClass);
-
-    if (existingGroup != null)
-    {
-        existingGroup.Count++;
-        existingGroup.LastSeenUtc = DateTime.UtcNow;
-
-        // ЕСЛИ В БАЗЕ НАШЛАСЬ ГРУППА БЕЗ ИИ-АНАЛИЗА — ПИНАЕМ МИСТРАЛЬ
-        if (string.IsNullOrWhiteSpace(existingGroup.Summary))
-        {
-            Console.WriteLine($"[AI] Generating missing analysis for existing group: {errorClass}");
-            var (analysis, patchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
-            existingGroup.Summary = analysis;
-            existingGroup.SuggestedPatch = patchCode;
-        }
-
-        await _logRepository.UpdateErrorGroupAsync(existingGroup);
-        _errorCache.TryAdd(errorHash, existingGroup.Id);
-        return existingGroup.Id;
-    }
-
-    // 3. Создаем абсолютно новую группу, если такой ошибки еще не было
-    Console.WriteLine($"[AI] Requesting HuggingFace for new error type: {errorClass}");
-    var (newAnalysis, newPatchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
-
-    var newGroup = new ErrorGroup
-    {
-        Id = Guid.NewGuid(),
-        ErrorClass = errorClass,
-        Summary = newAnalysis,
-        SuggestedPatch = newPatchCode,
-        FirstSeenUtc = DateTime.UtcNow,
-        LastSeenUtc = DateTime.UtcNow,
-        Count = 1
-    };
-
-    await _logRepository.AddErrorGroupAsync(newGroup);
-    _errorCache.TryAdd(errorHash, newGroup.Id);
-    return newGroup.Id;
-}
 
     private string ComputeErrorHash(string message, string? stackTrace)
     {

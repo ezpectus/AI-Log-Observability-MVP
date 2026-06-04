@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { ErrorGroup } from '../types';
 import { Brain, ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
+import * as signalR from '@microsoft/signalr';
 
-const ErrorGroups: React.FC = () => {
+interface ErrorGroupsProps {
+  connection: signalR.HubConnection | null;
+}
+
+const ErrorGroups: React.FC<ErrorGroupsProps> = ({ connection }) => {
   const [errorGroups, setErrorGroups] = useState<ErrorGroup[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,9 +28,31 @@ const ErrorGroups: React.FC = () => {
     };
 
     fetchErrorGroups();
+
+    if (connection) {
+      connection.on('ReceiveErrorGroup', (receivedGroup: ErrorGroup) => {
+        console.log('Received error group via SignalR:', receivedGroup);
+        setErrorGroups(prevGroups => {
+          const existingIndex = prevGroups.findIndex(g => g.id === receivedGroup.id);
+          if (existingIndex >= 0) {
+            const updated = [...prevGroups];
+            updated[existingIndex] = receivedGroup;
+            return updated;
+          } else {
+            return [...prevGroups, receivedGroup];
+          }
+        });
+      });
+    }
+
     const interval = setInterval(fetchErrorGroups, 10000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      clearInterval(interval);
+      if (connection) {
+        connection.off('ReceiveErrorGroup');
+      }
+    };
+  }, [connection]);
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
