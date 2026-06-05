@@ -34,7 +34,7 @@ public class ErrorGroupingService : IErrorGroupingService
                 cachedGroup.LastSeenUtc = DateTime.UtcNow;
 
                 // If analysis is missing, generate it on-demand
-                if (string.IsNullOrWhiteSpace(cachedGroup.Summary) || string.IsNullOrWhiteSpace(cachedGroup.SuggestedPatch))
+                if (NeedsAiAnalysis(cachedGroup))
                 {
                     Console.WriteLine($"[AI] Generating missing analysis for cached group: {errorClass}");
                     try
@@ -42,7 +42,9 @@ public class ErrorGroupingService : IErrorGroupingService
                         var (analysis, patchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
                         cachedGroup.Summary = analysis;
                         cachedGroup.SuggestedPatch = patchCode;
-                        Console.WriteLine($"[AI] Successfully generated analysis for cached group: {errorClass}");
+                        Console.WriteLine(IsFallbackAnalysis(analysis, patchCode)
+                            ? $"[AI] AI analysis fallback returned for cached group: {errorClass}"
+                            : $"[AI] Successfully generated analysis for cached group: {errorClass}");
                     }
                     catch (Exception ex)
                     {
@@ -68,7 +70,7 @@ public class ErrorGroupingService : IErrorGroupingService
             existingGroup.LastSeenUtc = DateTime.UtcNow;
 
             // If analysis is missing in database, generate it on-demand
-            if (string.IsNullOrWhiteSpace(existingGroup.Summary) || string.IsNullOrWhiteSpace(existingGroup.SuggestedPatch))
+            if (NeedsAiAnalysis(existingGroup))
             {
                 Console.WriteLine($"[AI] Generating missing analysis for existing database group: {errorClass}");
                 try
@@ -76,7 +78,9 @@ public class ErrorGroupingService : IErrorGroupingService
                     var (analysis, patchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
                     existingGroup.Summary = analysis;
                     existingGroup.SuggestedPatch = patchCode;
-                    Console.WriteLine($"[AI] Successfully generated analysis for database group: {errorClass}");
+                    Console.WriteLine(IsFallbackAnalysis(analysis, patchCode)
+                        ? $"[AI] AI analysis fallback returned for database group: {errorClass}"
+                        : $"[AI] Successfully generated analysis for database group: {errorClass}");
                 }
                 catch (Exception ex)
                 {
@@ -94,7 +98,9 @@ public class ErrorGroupingService : IErrorGroupingService
         try
         {
             var (newAnalysis, newPatchCode) = await _aiAnalysisService.SummarizeErrorAsync(log.Message, log.StackTrace);
-            Console.WriteLine($"[AI] Successfully generated analysis for new error type: {errorClass}");
+            Console.WriteLine(IsFallbackAnalysis(newAnalysis, newPatchCode)
+                ? $"[AI] AI analysis fallback returned for new error type: {errorClass}"
+                : $"[AI] Successfully generated analysis for new error type: {errorClass}");
 
             var newGroup = new ErrorGroup
             {
@@ -170,5 +176,19 @@ public class ErrorGroupingService : IErrorGroupingService
         }
 
         return message.Length > 50 ? message.Substring(0, 50) : message;
+    }
+
+    private static bool NeedsAiAnalysis(ErrorGroup group)
+    {
+        return string.IsNullOrWhiteSpace(group.Summary)
+            || string.IsNullOrWhiteSpace(group.SuggestedPatch)
+            || IsFallbackAnalysis(group.Summary, group.SuggestedPatch);
+    }
+
+    private static bool IsFallbackAnalysis(string analysis, string patchCode)
+    {
+        return analysis.Contains("AI analysis temporarily unavailable", StringComparison.OrdinalIgnoreCase)
+            || analysis.Contains("AI analysis unavailable", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(patchCode.Trim(), "// Patch not generated", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -4,7 +4,6 @@ import { LogEntry, LogLevel } from '../types';
 
 export const useLogsStream = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [connection, setConnection] = useState<signalR.HubConnection | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [filterService, setFilterService] = useState<string>('');
   const [filterLevel, setFilterLevel] = useState<LogLevel | null>(null);
@@ -24,8 +23,6 @@ export const useLogsStream = () => {
       .withUrl('http://localhost:5000/logs-stream')
       .withAutomaticReconnect()
       .build();
-
-    setConnection(newConnection);
 
     newConnection
       .start()

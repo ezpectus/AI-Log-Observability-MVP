@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Net;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.RateLimiting;
@@ -8,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Moq; 
 using StackExchange.Redis;
 using Application.Interfaces.Services;
@@ -22,11 +24,25 @@ using System.Net.Http;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+const string HuggingFaceHttpClientName = "HuggingFace";
 
 // Add framework services
-builder.Services.AddControllers();
-builder.Services.AddSignalR();
-builder.Services.AddHttpClient<HuggingFaceClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
+builder.Services
+    .AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+    });
+
+builder.Services
+    .AddSignalR()
+    .AddJsonProtocol(options =>
+    {
+        options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        options.PayloadSerializerOptions.PropertyNameCaseInsensitive = true;
+    });
+builder.Services.AddHttpClient(HuggingFaceHttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30));
 
 // Configure dual-mode database (Postgres with fallback to InMemory)
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -111,11 +127,13 @@ builder.Services.AddSingleton<MetricsAggregator>();
 builder.Services.AddScoped<ICacheService, CacheService>();
 builder.Services.AddScoped<IAiAnalysisService, HuggingFaceClient>(sp =>
 {
-    var http = sp.GetRequiredService<HttpClient>();
+    var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+    var http = httpClientFactory.CreateClient(HuggingFaceHttpClientName);
     var cfg = sp.GetRequiredService<IConfiguration>();
+    var logger = sp.GetRequiredService<ILogger<HuggingFaceClient>>();
     var key = cfg["HuggingFace:ApiKey"] ?? string.Empty;
     var url = cfg["HuggingFace:ModelUrl"] ?? string.Empty;
-    return new HuggingFaceClient(key, url, http);
+    return new HuggingFaceClient(key, url, http, logger);
 });
 
 builder.Services.AddHostedService<LogWorker>();

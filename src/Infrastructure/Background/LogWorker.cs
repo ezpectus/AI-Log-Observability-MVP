@@ -76,7 +76,7 @@ public class LogWorker : BackgroundService
                                         var updatedGroup = await repository.GetErrorGroupByIdAsync(errorGroupId.Value);
                                         if (updatedGroup != null)
                                         {
-                                            await _hubContext.Clients.All.SendAsync("ReceiveErrorGroup", updatedGroup, stoppingToken);
+                                            await _hubContext.Clients.All.SendAsync("ReceiveErrorGroup", ToErrorGroupPayload(updatedGroup), stoppingToken);
                                         }
                                     }
                                 }
@@ -84,7 +84,7 @@ public class LogWorker : BackgroundService
                                 await repository.SaveLogAsync(log);
                             }
 
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog", log, stoppingToken);
+                            await _hubContext.Clients.All.SendAsync("ReceiveLog", ToLogPayload(log), stoppingToken);
                         }
                     }
                     catch (Exception ex)
@@ -150,5 +150,33 @@ public class LogWorker : BackgroundService
                 _logger.LogError(ex, "Error broadcasting metrics: {Message}", ex.Message);
             }
         }
+    }
+
+    private static object ToErrorGroupPayload(ErrorGroup group)
+    {
+        return new
+        {
+            group.Id,
+            group.ErrorClass,
+            group.Summary,
+            group.SuggestedPatch,
+            group.FirstSeenUtc,
+            group.LastSeenUtc,
+            group.Count
+        };
+    }
+
+    private static object ToLogPayload(LogEntry log)
+    {
+        return new
+        {
+            log.Id,
+            log.ServiceName,
+            log.Level,
+            log.Message,
+            log.StackTrace,
+            log.CreatedAtUtc,
+            log.ErrorGroupId
+        };
     }
 }

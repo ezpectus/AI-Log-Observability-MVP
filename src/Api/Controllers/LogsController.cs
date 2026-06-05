@@ -29,6 +29,20 @@ public class LogsController : ControllerBase
         _logger = logger;
     }
 
+    private static object ToLogPayload(LogEntry log)
+    {
+        return new
+        {
+            log.Id,
+            log.ServiceName,
+            log.Level,
+            log.Message,
+            log.StackTrace,
+            log.CreatedAtUtc,
+            log.ErrorGroupId
+        };
+    }
+
     [HttpPost]
     [EnableRateLimiting("LogIngestionPolicy")]
     public async Task<IActionResult> IngestLog([FromBody] LogEntry log)
@@ -85,15 +99,27 @@ public class LogsController : ControllerBase
         }
 
         var logs = await _logQueryService.GetLogsAsync(service, level, limit, offset);
-        return Ok(logs);
+        return Ok(logs.Select(ToLogPayload));
     }
 
     [HttpGet("errors/groups")]
     public async Task<IActionResult> GetErrorGroups()
     {
         var groups = await _context.ErrorGroups
+            .AsNoTracking()
             .OrderByDescending(eg => eg.LastSeenUtc)
+            .Select(eg => new
+            {
+                eg.Id,
+                eg.ErrorClass,
+                eg.Summary,
+                eg.SuggestedPatch,
+                eg.FirstSeenUtc,
+                eg.LastSeenUtc,
+                eg.Count
+            })
             .ToListAsync();
+
         return Ok(groups);
     }
 
