@@ -11,7 +11,7 @@ public class ErrorGroupingService : IErrorGroupingService
 {
     private readonly IAiAnalysisService _aiAnalysisService;
     private readonly LogRepository _logRepository;
-    private readonly ConcurrentDictionary<string, Guid> _errorCache = new();
+    private static readonly ConcurrentDictionary<string, Guid> _errorCache = new();
 
     public ErrorGroupingService(IAiAnalysisService aiAnalysisService, LogRepository logRepository)
     {

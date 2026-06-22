@@ -141,6 +141,11 @@ Stack trace:
 
     private static string NormalizeApiKey(string apiKey)
     {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            return string.Empty;
+        }
+
         var token = apiKey.Trim();
         const string bearerPrefix = "Bearer ";
 

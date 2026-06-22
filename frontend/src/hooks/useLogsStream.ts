@@ -34,7 +34,7 @@ export const useLogsStream = () => {
       .catch((err) => console.error('SignalR Connection Error: ', err));
 
     newConnection.on('ReceiveLog', (receivedLog: LogEntry) => {
-      setLogs((prevLogs) => [receivedLog, ...prevLogs]);
+      setLogs((prevLogs) => [receivedLog, ...prevLogs].slice(0, 500));
     });
 
     return () => {
